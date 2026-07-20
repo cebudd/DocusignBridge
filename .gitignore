@@ -1,0 +1,8 @@
+.env
+secrets/
+venv/
+__pycache__/
+*.pyc
+.vercel/
+signed_capa_report.pdf
+.DS_Store
