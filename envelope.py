@@ -35,6 +35,7 @@ def build_envelope_definition(
     email_subject: str,
     last_page_number: int,
     last_page_height: float,
+    document_name: str = "CAPA Report",
 ) -> dict:
     field_y_position = int(last_page_height - BOTTOM_MARGIN_POINTS)
 
@@ -52,7 +53,7 @@ def build_envelope_definition(
         "documents": [
             {
                 "documentId": "1",
-                "name": "CAPA Report",
+                "name": document_name,
                 "fileExtension": "pdf",
                 "documentBase64": pdf_base64,
             }

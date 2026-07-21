@@ -42,9 +42,13 @@ def require_api_key():
 
 @app.route("/create-envelope", methods=["POST"])
 def create_envelope():
-    pdf_bytes = request.files["document"].read()
+    uploaded_file = request.files["document"]
+    pdf_bytes = uploaded_file.read()
     pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
     last_page_number, last_page_height = get_last_page_info(pdf_bytes)
+
+    original_filename = uploaded_file.filename or "CAPA Report.pdf"
+    document_name = os.path.splitext(original_filename)[0]
 
     elementum_record_id = request.form["elementum_record_id"]
     signer_email = request.form["signer_email"]
@@ -63,6 +67,7 @@ def create_envelope():
         email_subject,
         last_page_number,
         last_page_height,
+        document_name,
     )
 
     response = requests.post(
@@ -84,19 +89,28 @@ def get_signed_document(envelope_id):
     token = get_access_token()
     info = get_user_info(token)
     account = info["accounts"][0]
+    base = f"{account['base_uri']}/restapi/v2.1/accounts/{account['account_id']}"
+    auth_header = {"Authorization": f"Bearer {token}"}
 
-    url = (
-        f"{account['base_uri']}/restapi/v2.1/accounts/{account['account_id']}"
-        f"/envelopes/{envelope_id}/documents/combined"
+    documents_response = requests.get(f"{base}/envelopes/{envelope_id}/documents", headers=auth_header)
+    documents_response.raise_for_status()
+    documents = documents_response.json().get("envelopeDocuments", [])
+    document_name = next(
+        (doc["name"] for doc in documents if doc.get("documentId") == "1"),
+        "document",
     )
-    response = requests.get(
-        url,
-        headers={"Authorization": f"Bearer {token}"},
+
+    combined_response = requests.get(
+        f"{base}/envelopes/{envelope_id}/documents/combined",
+        headers=auth_header,
         params={"certificate": "true"},
     )
-    response.raise_for_status()
+    combined_response.raise_for_status()
 
-    return Response(response.content, mimetype="application/pdf")
+    signed_filename = f"{document_name}-signed.pdf"
+    response = Response(combined_response.content, mimetype="application/pdf")
+    response.headers["Content-Disposition"] = f'attachment; filename="{signed_filename}"'
+    return response
 
 
 if __name__ == "__main__":
