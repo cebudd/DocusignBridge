@@ -36,8 +36,37 @@ def build_envelope_definition(
     last_page_number: int,
     last_page_height: float,
     document_name: str = "CAPA Report",
+    access_code: str = None,
 ) -> dict:
     field_y_position = int(last_page_height - BOTTOM_MARGIN_POINTS)
+
+    signer = {
+        "recipientId": "1",
+        "routingOrder": "1",
+        "email": signer_email,
+        "name": signer_name,
+        "tabs": {
+            "signHereTabs": [
+                {
+                    "documentId": "1",
+                    "pageNumber": str(last_page_number),
+                    "xPosition": str(LEFT_MARGIN_POINTS),
+                    "yPosition": str(field_y_position),
+                }
+            ],
+            "dateSignedTabs": [
+                {
+                    "documentId": "1",
+                    "pageNumber": str(last_page_number),
+                    "xPosition": str(DATE_FIELD_X_POINTS),
+                    "yPosition": str(field_y_position),
+                }
+            ],
+        },
+    }
+
+    if access_code:
+        signer["accessCode"] = access_code
 
     return {
         "emailSubject": email_subject,
@@ -58,32 +87,5 @@ def build_envelope_definition(
                 "documentBase64": pdf_base64,
             }
         ],
-        "recipients": {
-            "signers": [
-                {
-                    "recipientId": "1",
-                    "routingOrder": "1",
-                    "email": signer_email,
-                    "name": signer_name,
-                    "tabs": {
-                        "signHereTabs": [
-                            {
-                                "documentId": "1",
-                                "pageNumber": str(last_page_number),
-                                "xPosition": str(LEFT_MARGIN_POINTS),
-                                "yPosition": str(field_y_position),
-                            }
-                        ],
-                        "dateSignedTabs": [
-                            {
-                                "documentId": "1",
-                                "pageNumber": str(last_page_number),
-                                "xPosition": str(DATE_FIELD_X_POINTS),
-                                "yPosition": str(field_y_position),
-                            }
-                        ],
-                    },
-                }
-            ]
-        },
+        "recipients": {"signers": [signer]},
     }
