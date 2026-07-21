@@ -8,7 +8,7 @@ import base64
 import requests
 
 from auth import get_access_token, get_user_info
-from envelope import build_envelope_definition
+from envelope import build_envelope_definition, get_last_page_info
 
 PDF_PATH = "test_capa_report.pdf"
 SIGNER_EMAIL = "cbudd@elementum.com"
@@ -24,7 +24,9 @@ ELEMENTUM_RECORD_ID = "TEST-CAPA-001"
 
 if __name__ == "__main__":
     with open(PDF_PATH, "rb") as f:
-        pdf_base64 = base64.b64encode(f.read()).decode("utf-8")
+        pdf_bytes = f.read()
+    pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    last_page_number, last_page_height = get_last_page_info(pdf_bytes)
 
     token = get_access_token()
     info = get_user_info(token)
@@ -38,6 +40,8 @@ if __name__ == "__main__":
         SIGNER_EMAIL,
         SIGNER_NAME,
         EMAIL_SUBJECT,
+        last_page_number,
+        last_page_height,
     )
 
     response = requests.post(

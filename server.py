@@ -22,7 +22,7 @@ from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, request
 
 from auth import get_access_token, get_user_info
-from envelope import build_envelope_definition
+from envelope import build_envelope_definition, get_last_page_info
 
 load_dotenv()
 
@@ -42,8 +42,9 @@ def require_api_key():
 
 @app.route("/create-envelope", methods=["POST"])
 def create_envelope():
-    pdf_file = request.files["document"]
-    pdf_base64 = base64.b64encode(pdf_file.read()).decode("utf-8")
+    pdf_bytes = request.files["document"].read()
+    pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+    last_page_number, last_page_height = get_last_page_info(pdf_bytes)
 
     elementum_record_id = request.form["elementum_record_id"]
     signer_email = request.form["signer_email"]
@@ -60,6 +61,8 @@ def create_envelope():
         signer_email,
         signer_name,
         email_subject,
+        last_page_number,
+        last_page_height,
     )
 
     response = requests.post(

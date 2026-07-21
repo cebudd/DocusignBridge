@@ -4,3 +4,4 @@ PyJWT
 cryptography
 reportlab
 flask
+pypdf
