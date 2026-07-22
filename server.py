@@ -28,12 +28,6 @@ load_dotenv()
 
 MIDDLEWARE_API_KEY = os.environ["MIDDLEWARE_API_KEY"]
 
-# Demo-only stand-in for the real CFR Part 11 module (which requires a
-# DocuSign account tier we don't have yet). Requires the signer to enter
-# this code before DocuSign will even show them the document. Override
-# per-request with an "access_code" form field if needed.
-DEFAULT_DEMO_ACCESS_CODE = "123456"
-
 app = Flask(__name__)
 
 
@@ -60,7 +54,6 @@ def create_envelope():
     signer_email = request.form["signer_email"]
     signer_name = request.form["signer_name"]
     email_subject = request.form.get("email_subject", "Please sign your document")
-    access_code = request.form.get("access_code", DEFAULT_DEMO_ACCESS_CODE)
 
     token = get_access_token()
     info = get_user_info(token)
@@ -75,7 +68,6 @@ def create_envelope():
         last_page_number,
         last_page_height,
         document_name,
-        access_code,
     )
 
     response = requests.post(

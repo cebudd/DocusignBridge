@@ -36,7 +36,6 @@ def build_envelope_definition(
     last_page_number: int,
     last_page_height: float,
     document_name: str = "CAPA Report",
-    access_code: str = None,
 ) -> dict:
     field_y_position = int(last_page_height - BOTTOM_MARGIN_POINTS)
 
@@ -64,9 +63,6 @@ def build_envelope_definition(
             ],
         },
     }
-
-    if access_code:
-        signer["accessCode"] = access_code
 
     return {
         "emailSubject": email_subject,
