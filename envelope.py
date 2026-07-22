@@ -36,6 +36,7 @@ def build_envelope_definition(
     last_page_number: int,
     last_page_height: float,
     document_name: str = "CAPA Report",
+    callback_url: str = None,
 ) -> dict:
     field_y_position = int(last_page_height - BOTTOM_MARGIN_POINTS)
 
@@ -64,7 +65,7 @@ def build_envelope_definition(
         },
     }
 
-    return {
+    envelope_definition = {
         "emailSubject": email_subject,
         "status": "sent",
         "customFields": {
@@ -85,3 +86,22 @@ def build_envelope_definition(
         ],
         "recipients": {"signers": [signer]},
     }
+
+    # Per-envelope Connect: routes this envelope's completion notification
+    # straight to the specific Elementum app that requested it, instead of
+    # relying on an account-wide Connect configuration (which would notify
+    # every connected app about every envelope, not just its own). Omitted
+    # entirely for callers that don't want a completion callback at all.
+    if callback_url:
+        envelope_definition["eventNotification"] = {
+            "url": callback_url,
+            "requireAcknowledgment": "true",
+            "loggingEnabled": "true",
+            "envelopeEvents": [{"envelopeEventStatusCode": "completed"}],
+            "eventData": {
+                "version": "restv2.1",
+                "includeData": ["custom_fields"],
+            },
+        }
+
+    return envelope_definition

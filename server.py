@@ -54,6 +54,7 @@ def create_envelope():
     signer_email = request.form["signer_email"]
     signer_name = request.form["signer_name"]
     email_subject = request.form.get("email_subject", "Please sign your document")
+    callback_url = request.form.get("callback_url") or None
 
     token = get_access_token()
     info = get_user_info(token)
@@ -68,6 +69,7 @@ def create_envelope():
         last_page_number,
         last_page_height,
         document_name,
+        callback_url,
     )
 
     response = requests.post(
