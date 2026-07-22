@@ -51,13 +51,20 @@ record ready to sign
    │
    │ api_task: POST /create-envelope
    │  (PDF attachment, signer email/name,
-   │   elementum_record_id, email_subject)
+   │   elementum_record_id, email_subject,
+   │   callback_url -- this app's own
+   │   "receive signed document" webhook URL)
    ▼
                           mints a JWT-signed access
                           token, calls DocuSign's
                           Envelopes:create, embeds
                           elementum_record_id as an
-                          envelope custom field
+                          envelope custom field, and
+                          sets callback_url as this
+                          envelope's own eventNotification
+                          (its private completion webhook --
+                          see "Why per-envelope, not
+                          account-wide" below)
                                     │
                                     ▼
                                                               creates + sends
@@ -70,15 +77,16 @@ record ready to sign
                                                               envelope status
                                                               -> completed
                                                                      │
-                    DocuSign Connect (webhook) ◄──────────────────────┘
+              DocuSign's per-envelope notification ◄──────────────────┘
                           │
-                          │  POSTS directly to Elementum's own
-                          │  webhook trigger URL -- NOT through
-                          │  this middleware. Payload includes
-                          │  envelopeId, status, and the
+                          │  POSTS directly to the callback_url
+                          │  this specific envelope was given --
+                          │  NOT through this middleware, and NOT
+                          │  to any other app's webhook. Payload
+                          │  includes envelopeId, status, and the
                           │  elementum_record_id custom field.
                           ▼
-Elementum webhook trigger fires
+Elementum webhook trigger fires (this app's own)
    │
    │ parse the payload (envelopeId, status, elementum_record_id)
    │ find the record by elementum_record_id
@@ -98,24 +106,48 @@ Elementum webhook trigger fires
 record now has the signed document attached
 ```
 
-**Why the webhook is direct (not routed through the middleware):**
+**Why the notification is direct (not routed through the middleware):**
 Elementum has a native webhook trigger that can receive a POST from any
-external system, including DocuSign Connect. Routing the "envelope
-completed" notification through the middleware first would add a hop for
-no benefit — Elementum can receive it directly. The middleware is only
-needed for the two things Elementum genuinely can't do on its own:
-authenticating to DocuSign (a JWT signed with an RSA private key — the
-sandboxed script-task runtime that Elementum automations run in has no
-crypto or network access, confirmed directly with Elementum's own
-documentation agent) and knowing DocuSign's specific REST API shapes.
+external system, including DocuSign. Routing the "envelope completed"
+notification through the middleware first would add a hop for no benefit
+— Elementum can receive it directly. The middleware is only needed for
+the two things Elementum genuinely can't do on its own: authenticating to
+DocuSign (a JWT signed with an RSA private key — the sandboxed script-task
+runtime that Elementum automations run in has no crypto or network
+access, confirmed directly with Elementum's own documentation agent) and
+knowing DocuSign's specific REST API shapes.
+
+**Why per-envelope notification, not one account-wide Connect
+configuration:** DocuSign supports two ways to get notified about
+envelope events. The first is an account-level **Connect configuration**
+(set up once in DocuSign's Admin console), which fires for *every*
+envelope on the account, sent to one fixed URL. That doesn't work once
+more than one Elementum app shares a DocuSign account — every app's
+webhook would get notified about every other app's envelopes too, since
+Connect configurations aren't scoped per envelope. The second way, which
+this bridge uses, sets a **per-envelope `eventNotification`** directly in
+the API call that creates the envelope — each envelope carries its own
+private completion webhook URL, so DocuSign notifies exactly one app,
+for exactly the envelope it created, with no crosstalk between apps and
+no DocuSign Admin console configuration needed per app. This is
+implemented via the optional `callback_url` field on `/create-envelope`
+(omit it entirely for a one-way "just get it signed, no callback needed"
+flow).
+
+**Important:** this per-envelope delivery path's JSON payload shape is
+**flatter** than what an account-level Connect configuration would send
+— `envelopeId`, `status`, and `customFields` sit at the top level of the
+payload, not nested under a `data.envelopeSummary` wrapper. See
+[docs/ADDING_A_NEW_APP.md](docs/ADDING_A_NEW_APP.md) for the exact
+parsing code.
 
 **Why the envelope custom field, not a lookup:** When the middleware
 creates an envelope, it attaches an **envelope custom field** named
 `elementumRecordId` carrying whatever record ID value the calling
-Elementum app passed in. DocuSign Connect can be configured to include
-custom fields in its webhook payload, so when the "completed" notification
-arrives, Elementum already knows which record to update — no search
-required to correlate "which envelope was this for."
+Elementum app passed in. This rides along in the completion webhook
+payload automatically, so when the "completed" notification arrives,
+Elementum already knows which record to update — no search required to
+correlate "which envelope was this for."
 
 ## 3. What's in this repo
 
@@ -150,13 +182,13 @@ and handwritten signature image).
   — it read as unconvincing for a customer demo and doesn't represent the
   real Part 11 module's behavior (which also re-authenticates at the
   moment of signing, not just at document access).
-- **Single account, currently.** Every envelope this middleware creates
-  goes through one DocuSign account. If multiple Elementum apps share this
-  deployment, DocuSign Connect will notify *every* connected Elementum
-  webhook about *every* envelope's completion on that account, not just
-  the ones each app created. See
-  [docs/ADDING_A_NEW_APP.md](docs/ADDING_A_NEW_APP.md) for how receiving
-  automations should handle this defensively.
+- **Single DocuSign account, currently**, shared by every Elementum app
+  using this deployment. This no longer causes cross-app notification
+  crosstalk (solved via per-envelope `callback_url` routing — see
+  Section 2), but every app's envelopes still count against the same
+  account's sending limits/plan, and there's no way for one app to use
+  different DocuSign branding/settings than another while sharing this
+  account.
 - **No webhook authentication yet**, on either leg. Elementum's webhook
   trigger currently has "Bypass Authentication" enabled (anyone who
   discovers the URL could POST a fake completion event), and the

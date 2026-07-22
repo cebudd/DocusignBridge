@@ -3,29 +3,26 @@
 This walks through wiring up a new Elementum app to send documents out for
 signature via DocuSign Bridge, and receive the signed copy back
 automatically. Read [../README.md](../README.md) first if you haven't —
-it explains the overall architecture this guide assumes.
+it explains the overall architecture this guide assumes, including why
+each app gets its own private completion notification instead of sharing
+one account-wide DocuSign Connect configuration.
 
 ## Before you start: which DocuSign account and middleware deployment?
 
 Two options:
 
 - **Reuse the existing shared deployment** (`https://docusign-bridge.vercel.app`
-  and its DocuSign account). Simplest — nothing to set up on the DocuSign
-  side beyond a new Connect configuration (Part 3 below). The tradeoff:
-  every app sharing this account will get notified about every other
-  app's envelope completions too (see the callout in Part 3), so your
-  receiving automation needs to handle "this notification isn't for me"
-  gracefully.
+  and its DocuSign account). Simplest — there's no DocuSign Admin console
+  configuration needed per app at all (see Part 3 below for why). Each
+  app's envelopes and notifications stay isolated from every other app's
+  automatically.
 - **Stand up your own account and deployment**, fully isolated from other
-  apps. See [SETUP_FROM_SCRATCH.md](SETUP_FROM_SCRATCH.md). More setup
-  work up front, no cross-app notification concerns.
+  apps at the account level too (separate sending limits/plan, separate
+  branding). See [SETUP_FROM_SCRATCH.md](SETUP_FROM_SCRATCH.md).
 
 If you're not sure which, ask whoever owns this integration — it's an org
-decision, not a per-app one.
-
-The rest of this guide assumes you have: a middleware base URL, its
-`MIDDLEWARE_API_KEY`, and (if setting up Connect yourself) access to that
-DocuSign account's Admin console.
+decision, not a per-app one. The rest of this guide assumes you have a
+middleware base URL and its `MIDDLEWARE_API_KEY`.
 
 ## Part A: the "send for signature" automation
 
@@ -47,6 +44,7 @@ task** (Elementum's generic outbound HTTP request task):
   | `signer_email` | Text | The signer's email |
   | `signer_name` | Text | The signer's full name |
   | `email_subject` | Text (optional) | Defaults to "Please sign your document" if omitted |
+  | `callback_url` | Text (optional) | The webhook URL from your Part B automation (below). Omit entirely if you just want the document signed with no callback — e.g. a one-off signature that doesn't need to come back into Elementum. |
 
 - **Response type:** JSON
 - **Continue on Error Status:** leave unchecked — if envelope creation
@@ -66,13 +64,15 @@ tags, no fixed layout assumptions.
 ## Part B: the "receive signed document" automation
 
 This automation is triggered by DocuSign, not by anything in your app.
+Build this *before* Part A goes live, since Part A needs this automation's
+webhook URL as its `callback_url`.
 
 ### B1. Webhook Trigger
 
 Create a new automation with a **Webhook Trigger** as its first step. Save
-it to generate a unique webhook URL — you'll need this for Part 3. Leave
-"Bypass Authentication" on for now (see README's Known Limitations on why
-this isn't hardened yet).
+it to generate a unique webhook URL — this is the value you'll pass as
+`callback_url` in Part A. Leave "Bypass Authentication" on for now (see
+README's Known Limitations on why this isn't hardened yet).
 
 ### B2. Parse the webhook body (Execute Script task)
 
@@ -86,14 +86,23 @@ Code:
 ```javascript
 const payload = JSON.parse(input.parameters.rawBody);
 
-const envelopeId = payload.data.envelopeId;
-const status = payload.data.envelopeSummary.status;
-const customFields = payload.data.envelopeSummary.customFields.textCustomFields || [];
+const envelopeId = payload.envelopeId;
+const status = payload.status;
+const customFields = payload.customFields.textCustomFields || [];
 const recordIdField = customFields.find(f => f.name === "elementumRecordId");
 const elementumRecordId = recordIdField ? recordIdField.value : null;
 
 return { envelopeId, status, elementumRecordId };
 ```
+
+Note the payload is read from the **top level** (`payload.envelopeId`,
+`payload.status`, `payload.customFields`) — this is the shape DocuSign's
+per-envelope notification actually sends, confirmed by capturing a real
+payload. It's flatter than what an account-level Connect configuration
+would send (which nests everything under `payload.data.envelopeSummary`)
+— don't mix the two shapes up if you ever look at older reference
+material or DocuSign's general Connect docs, which mostly describe the
+account-level format.
 
 **Do not** wrap the return value in your own `result`/`textResult` keys
 (e.g. `return { result: {...}, textResult: status }`). Elementum
@@ -129,12 +138,6 @@ Add a **Search Records** (find record) task. Filter on your app's ID/
 handle field, where the value equals `result.elementumRecordId` from the
 script task.
 
-If you're sharing a DocuSign account with other apps (see the callout at
-the top of this doc), this search will sometimes find nothing — that's
-expected when the webhook fired for a different app's envelope. Make sure
-your automation handles a zero-result search gracefully (skip the
-remaining steps) rather than erroring.
-
 ### B4. Fetch the signed document
 
 Add another **API task**:
@@ -169,56 +172,30 @@ traffic keeps running whatever's currently **Published** until you
 explicitly publish your changes. If a fix "isn't working" after you've
 saved it, check this first.
 
-## Part 3: configure DocuSign Connect for this app
+## Part 3: DocuSign Connect setup — none needed
 
-This is done in the DocuSign account's Admin console, not in Elementum.
+Unlike a typical DocuSign Connect integration, **there is nothing to
+configure in the DocuSign Admin console for a new app**. The completion
+notification is set per-envelope, directly in the `/create-envelope` API
+call the middleware already makes on your behalf (via the `callback_url`
+you passed in Part A) — DocuSign sends the notification straight to your
+app's own webhook URL, no account-wide Connect configuration involved.
 
-1. **Admin → Integrations → Connect → Add Configuration → Custom.**
-2. **Name:** something identifying this app (e.g. "Elementum — CAPA
-   Bridge" or your app's name).
-3. **URL to Publish:** the webhook URL from step B1.
-4. **Data Format:** `REST v2.1` (this is JSON; cannot be changed after
-   saving).
-5. **Event Message Delivery Mode:** `Send Individual Messages (SIM)`.
-6. Expand **Envelope and Recipients**, check **Envelope Signed/Completed**
-   under Envelope Events.
-7. In the **Include Data** panel (nested inside that same section), check
-   **Custom Fields** — this is what makes `elementumRecordId` show up in
-   the webhook payload. Leave **Documents** unchecked; the middleware
-   fetches the actual signed PDF separately (Part B4), so including it
-   here would just bloat the payload for no reason.
-8. **Associated Users/Groups:** see the callout below if you're sharing
-   an account with other apps.
-9. Leave the security options (HMAC, OAuth, Basic Auth, Mutual TLS)
-   unchecked for now — not yet hardened across this integration (see
-   README's Known Limitations).
-10. **Add Configuration.**
+This is a deliberate change from an earlier version of this integration,
+which did use one shared account-level Connect configuration. That
+approach was abandoned because it fires for *every* envelope on the
+account regardless of which app created it — with more than one app
+sharing a DocuSign account, every app's webhook would get notified about
+every other app's envelope completions too. Per-envelope notification
+avoids that entirely: each envelope only ever notifies the one URL it was
+given.
+
+If you're standing up your own DocuSign account
+([SETUP_FROM_SCRATCH.md](SETUP_FROM_SCRATCH.md)) rather than sharing the
+existing one, you still don't need to touch DocuSign Connect in the Admin
+console — the same per-envelope mechanism applies regardless of which
+account is being used.
 
 Test by running your Part A automation on a real record, signing the
-resulting email, and confirming your Part B automation fires and
-correctly finds/updates the record.
-
-### If you're sharing a DocuSign account with other apps
-
-DocuSign Connect configurations are account-wide by default (Associated
-Users/Groups = "All Users/Groups") — every configuration fires for every
-qualifying event on the entire account, regardless of which app's
-automation actually created the envelope. With multiple apps sharing one
-account, that means **every app's webhook gets notified about every
-envelope completion**, not just its own.
-
-Two ways to handle this:
-
-- **Defensive receiving automations (simplest):** each app's Part B3
-  search will just find zero records for envelopes that weren't its own,
-  and the automation should skip the rest of the steps in that case
-  (already called out in B3). No DocuSign-side changes needed.
-- **Scope by sender identity:** if each app impersonates a distinct
-  DocuSign user when creating envelopes (a different signer/sender
-  identity per app), you can set each Connect configuration's
-  **Associated Users/Groups** to "Select Users/Groups to include" and
-  scope it to just that app's sending identity, so only relevant events
-  reach each webhook. More setup work, cleaner isolation.
-
-Whichever you pick, make it consistent across all apps sharing the
-account — don't mix approaches.
+resulting email, and confirming your Part B automation fires exactly
+once and correctly finds/updates the record.
