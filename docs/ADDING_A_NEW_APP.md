@@ -104,6 +104,16 @@ would send (which nests everything under `payload.data.envelopeSummary`)
 material or DocuSign's general Connect docs, which mostly describe the
 account-level format.
 
+**Known gap — declines aren't handled yet.** `envelope.py` currently only
+subscribes to `envelopeEventStatusCode: "completed"`, so a signer clicking
+"Decline to Sign" produces **no notification at all** right now — not an
+error, just silence, and the record is left waiting on a signature that
+will never arrive. See the README's Known Limitations for what fixing
+this involves (subscribing to the `declined` event too, and branching
+this script on `payload.status`). Queued as follow-up work, not yet
+started — if you're building a new app against this bridge before it's
+fixed, be aware a decline currently vanishes silently.
+
 **Do not** wrap the return value in your own `result`/`textResult` keys
 (e.g. `return { result: {...}, textResult: status }`). Elementum
 automatically wraps every script's return value as `refs["result"]` (JSON)

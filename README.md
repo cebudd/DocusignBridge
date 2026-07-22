@@ -199,3 +199,22 @@ and handwritten signature image).
   one signer with one signature and one date field, placed near the
   bottom of whichever page turns out to be last in the uploaded PDF. Multi
   -signer routing isn't built.
+- **No handling for a signer declining to sign — this is a real, silent
+  gap, not just an unbuilt feature.** DocuSign's "Decline to Sign" sets
+  the envelope's status to `declined` (a distinct outcome from
+  `completed`, with an optional `declinedReason` captured on the
+  recipient). Our per-envelope `eventNotification` (`envelope.py`) only
+  subscribes to `envelopeEventStatusCode: "completed"` — a decline
+  currently triggers **no notification to Elementum at all**. The record
+  will simply sit waiting for a signature that already isn't coming,
+  with no visible error anywhere. To fix:
+  1. Add `{"envelopeEventStatusCode": "declined"}` alongside `"completed"`
+     in the `envelopeEvents` list.
+  2. Update the receiving automation's script (see
+     [docs/ADDING_A_NEW_APP.md](docs/ADDING_A_NEW_APP.md)) to branch on
+     `payload.status` — a decline has no signed document to fetch, so it
+     needs a different downstream path than completion.
+  3. Confirm empirically (same approach used throughout this project)
+     whether `declinedReason` actually appears in this flat notification
+     payload, or whether retrieving it needs an extra API call.
+  Queued as follow-up work, not yet started.
