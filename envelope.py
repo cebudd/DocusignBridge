@@ -97,7 +97,10 @@ def build_envelope_definition(
             "url": callback_url,
             "requireAcknowledgment": "true",
             "loggingEnabled": "true",
-            "envelopeEvents": [{"envelopeEventStatusCode": "completed"}],
+            "envelopeEvents": [
+                {"envelopeEventStatusCode": "completed"},
+                {"envelopeEventStatusCode": "declined"},
+            ],
             "eventData": {
                 "version": "restv2.1",
                 "includeData": ["custom_fields"],
