@@ -8,9 +8,11 @@ Endpoints:
   POST /create-envelope                -- accepts a PDF file + signer info,
                                           creates and sends a DocuSign
                                           envelope, returns its envelopeId.
-  GET /signed-document/<envelope_id>  -- returns the combined signed PDF
-                                          + Certificate of Completion for a
-                                          completed envelope.
+  GET /signed-document/<envelope_id>  -- returns the combined document +
+                                          Certificate of Completion for a
+                                          completed OR declined envelope
+                                          (named "...-signed.pdf" or
+                                          "...-declined.pdf" accordingly).
 """
 
 import base64

@@ -199,22 +199,33 @@ and handwritten signature image).
   one signer with one signature and one date field, placed near the
   bottom of whichever page turns out to be last in the uploaded PDF. Multi
   -signer routing isn't built.
-- **No handling for a signer declining to sign — this is a real, silent
-  gap, not just an unbuilt feature.** DocuSign's "Decline to Sign" sets
-  the envelope's status to `declined` (a distinct outcome from
-  `completed`, with an optional `declinedReason` captured on the
-  recipient). Our per-envelope `eventNotification` (`envelope.py`) only
-  subscribes to `envelopeEventStatusCode: "completed"` — a decline
-  currently triggers **no notification to Elementum at all**. The record
-  will simply sit waiting for a signature that already isn't coming,
-  with no visible error anywhere. To fix:
-  1. Add `{"envelopeEventStatusCode": "declined"}` alongside `"completed"`
-     in the `envelopeEvents` list.
-  2. Update the receiving automation's script (see
-     [docs/ADDING_A_NEW_APP.md](docs/ADDING_A_NEW_APP.md)) to branch on
-     `payload.status` — a decline has no signed document to fetch, so it
-     needs a different downstream path than completion.
-  3. Confirm empirically (same approach used throughout this project)
-     whether `declinedReason` actually appears in this flat notification
-     payload, or whether retrieving it needs an extra API call.
-  Queued as follow-up work, not yet started.
+- **Decline to Sign is handled at the bridge level; branching on it is an
+  app-builder responsibility, not yet done anywhere.** DocuSign's
+  "Decline to Sign" sets the envelope's status to `declined` (distinct
+  from `completed`), with an optional `declinedReason` captured on the
+  recipient. The bridge itself now handles this correctly:
+  - The per-envelope `eventNotification` subscribes to both
+    `envelopeEventStatusCode: "completed"` and `"declined"` — a decline
+    now reaches Elementum's webhook just like a completion does. Verified
+    against a real decline; the existing parsing script needed zero
+    changes, since the `declined` payload has the same flat shape as
+    `completed` (`envelopeId`/`status`/`customFields` at the top level).
+  - `/signed-document/<id>` correctly returns DocuSign's Certificate of
+    Completion even for a declined envelope (DocuSign generates one
+    regardless of outcome — it just shows 0 signatures and the decline
+    reason/timestamp instead), and names the file
+    `<name>-declined.pdf` instead of `<name>-signed.pdf`, determined by
+    checking the envelope's actual status independently rather than
+    trusting the caller.
+  - **Not done:** any given app's *receiving* Elementum automation still
+    treats `declined` exactly like `completed` downstream — it'll attach
+    the decline certificate and proceed through whatever else that
+    automation does (e.g. advancing a workflow stage) without checking
+    which outcome actually occurred. Each app needs its own branch on
+    `result.status` to handle this correctly; that's app-specific
+    business logic, not something the bridge can do generically. See
+    [docs/ADDING_A_NEW_APP.md](docs/ADDING_A_NEW_APP.md).
+  - **Also not done:** retrieving the actual `declinedReason` text.
+    Confirmed it does not ride along in the webhook payload — getting it
+    would need an extra `GET /envelopes/{id}/recipients` call, not
+    currently implemented.

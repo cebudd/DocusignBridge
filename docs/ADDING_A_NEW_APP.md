@@ -104,15 +104,25 @@ would send (which nests everything under `payload.data.envelopeSummary`)
 material or DocuSign's general Connect docs, which mostly describe the
 account-level format.
 
-**Known gap — declines aren't handled yet.** `envelope.py` currently only
-subscribes to `envelopeEventStatusCode: "completed"`, so a signer clicking
-"Decline to Sign" produces **no notification at all** right now — not an
-error, just silence, and the record is left waiting on a signature that
-will never arrive. See the README's Known Limitations for what fixing
-this involves (subscribing to the `declined` event too, and branching
-this script on `payload.status`). Queued as follow-up work, not yet
-started — if you're building a new app against this bridge before it's
-fixed, be aware a decline currently vanishes silently.
+**Your automation will also fire on a decline — branch accordingly.**
+The bridge subscribes to both `completed` and `declined` envelope events,
+so this script runs for either outcome; `result.status` will be
+`"completed"` or `"declined"`. Nothing past this point in this guide
+(B3–B5) distinguishes between them, and it should — as written, a
+decline flows through the exact same find-record → fetch-document →
+attach path as a real signature. That's usually not what you want: a
+declined envelope still has *a* document available at `/signed-document`
+(DocuSign generates a Certificate of Completion even for a decline,
+showing 0 signatures and the decline reason — the bridge names this file
+`<name>-declined.pdf` rather than `<name>-signed.pdf` so it's not mistaken
+for a real signature), but what your automation *does* with that outcome
+— attach it as a record of the refusal, skip any stage advancement,
+notify someone, whatever fits your app — is specific to your app's
+business logic. Add a switch/branch on `result.status` after B2 and route
+accordingly. Not yet built into any existing automation as of this
+writing; retrieving the actual decline reason text isn't wired up either
+(confirmed absent from this webhook payload — would need an extra
+`GET /envelopes/{id}/recipients` call).
 
 **Do not** wrap the return value in your own `result`/`textResult` keys
 (e.g. `return { result: {...}, textResult: status }`). Elementum
