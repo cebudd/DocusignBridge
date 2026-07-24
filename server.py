@@ -102,6 +102,11 @@ def get_signed_document(envelope_id):
         "document",
     )
 
+    envelope_response = requests.get(f"{base}/envelopes/{envelope_id}", headers=auth_header)
+    envelope_response.raise_for_status()
+    envelope_status = envelope_response.json().get("status")
+    suffix = "declined" if envelope_status == "declined" else "signed"
+
     combined_response = requests.get(
         f"{base}/envelopes/{envelope_id}/documents/combined",
         headers=auth_header,
@@ -109,7 +114,7 @@ def get_signed_document(envelope_id):
     )
     combined_response.raise_for_status()
 
-    signed_filename = f"{document_name}-signed.pdf"
+    signed_filename = f"{document_name}-{suffix}.pdf"
     response = Response(combined_response.content, mimetype="application/pdf")
     response.headers["Content-Disposition"] = f'attachment; filename="{signed_filename}"'
     return response
